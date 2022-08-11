@@ -85,4 +85,22 @@ class MDNRNN(object):
         self.out_mean = out_mean
         self.out_logstd = out_logstd
         # Implementar la operación de dentrenamiento
-        
+        logSqrtTwoPi = np.log(np.sqrt(2.0*np.pi))
+
+        def tf_lognormal(y, mean, logstd):
+            return -0.5*((y-mean)/tf.exp(logstd))**2
+
+        def get_loggfunc(logmix, mean, logstd, y):
+            v = logmix + tf_lognormal(y=y, mean=mean, logstd=logstd)
+            v = tf.math.reduce_logsumexp(v, axis=1, keepdims=True)
+            return -tf.reduce_mean(v)
+        flat_target_data = tf.reshape(self.output_x, [-1, 1])
+        lossfunc = get_loggfunc(logmix=out_logmix, mean=out_mean, logstd=out_logstd, y=flat_target_data)
+        self.cost = tf.reduce_mean(lossfunc)
+        if self.hps.is_training == 1:
+            self.lr = tf.Variable(self.hps.learning_rate, trainable=False)
+            self.optimizer = tf.compat.v1.train.AdamOptimizer(self.lr)
+            gvs = self.optimizer.compute_gradients(self.cost)
+            capped_gvs = [(tf.clip_by_value(grad, -self.hps.grad_clip, self.hps.grad_clip), var) for grad, var in gvs]
+            self.train_op = self.optimizer.apply_gradients(capped_gvs, global_step=self.global_step, name="train_step")
+        self.init = tf.compat.v1.global_variables_initializer()
